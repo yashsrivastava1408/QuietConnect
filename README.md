@@ -64,11 +64,13 @@ The core productivity tool functions like a digital Kanban board, designed for c
 - **Smart Status Syncing:** Toggling a subtask automatically triggers the `syncTaskStatus` utility. If all subtasks are checked, the parent task is instantly marked as `completed`. If partially complete, it shifts to `in-progress`.
 - **Buckets:** Tasks are visually grouped into "Buckets" which can be collapsed/expanded to reduce cognitive overload.
 
-### 4. Quiet Networking (Matching & Friend Requests)
-Designed specifically for introverts, the social features are low-pressure and asynchronous.
+### 4. Social Features & Messaging
+Designed specifically for introverts, the social features are low-pressure, asynchronous, and prioritize user control.
 - **Interest-Based Matching:** Users can browse curated profiles (simulated matches), view overlapping interests via pill-tags, and "Save" matches for later without sending an immediate notification.
 - **Friend Requests:** A dedicated workflow for sending connections. Requests sit in a `pending` state until the recipient chooses to `accept` or `reject` them.
-- **Real-time Notifications:** All social interactions (messages received, friend requests updated, matches saved) programmatically inject alerts into the user's `notifications` array.
+- **Messaging with Validation:** Real-time messaging panel includes backend validation that prevents empty or whitespace-only messages from being sent.
+- **Block & Report Tools:** Users can directly click "Block" on a message to instantly hide all past and future communications from that sender. Clicking "Report" submits the user to an internal `reports` admin queue.
+- **Real-time Notifications & Toggles:** All social interactions programmatically inject alerts into the user's `notifications` array. Users have full control over these alerts and can globally disable them via a toggle in their Profile Settings.
 
 ### 5. Premium Deep Space Glassmorphism (UI)
 The aesthetic is deliberately designed to feel like a high-end, premium "OS" rather than a standard webpage.

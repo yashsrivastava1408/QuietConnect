@@ -17,6 +17,8 @@ type StoredProfile = {
   bio: string;
   avatarUrl: string;
   interests: string;
+  notificationsEnabled: boolean;
+  blockedUsers: string[];
 };
 
 type StoredUser = {
@@ -32,6 +34,14 @@ type StoredSession = {
   createdAt: string;
 };
 
+type AdminReport = {
+  id: number;
+  reporter: string;
+  reportedUser: string;
+  reason: string;
+  timestamp: string;
+};
+
 type DatabaseShape = {
   users: StoredUser[];
   profiles: StoredProfile[];
@@ -42,6 +52,7 @@ type DatabaseShape = {
   friendRequests: BoardState["friendRequests"];
   notifications: Notification[];
   savedMatches: SavedMatch[];
+  reports: AdminReport[];
 };
 
 const dataDir = path.join(process.cwd(), ".data");
@@ -64,7 +75,9 @@ function ensureDataFile() {
       userId: user.id,
       bio: "",
       avatarUrl: "",
-      interests: ""
+      interests: "",
+      notificationsEnabled: true,
+      blockedUsers: []
     }));
 
     const initialData: DatabaseShape = {
@@ -76,7 +89,8 @@ function ensureDataFile() {
       messages: seedMessages,
       friendRequests: seedFriendRequests,
       notifications: seedNotifications,
-      savedMatches: seedSavedMatches
+      savedMatches: seedSavedMatches,
+      reports: []
     };
 
     fs.writeFileSync(dataFile, JSON.stringify(initialData, null, 2), "utf8");
@@ -89,7 +103,11 @@ function readDb(): DatabaseShape {
 
   const normalized: DatabaseShape = {
     users: raw.users ?? [],
-    profiles: raw.profiles ?? [],
+    profiles: (raw.profiles ?? []).map(p => ({
+      ...p,
+      notificationsEnabled: p.notificationsEnabled ?? true,
+      blockedUsers: p.blockedUsers ?? []
+    })),
     sessions: raw.sessions ?? [],
     tasks: raw.tasks ?? [],
     collapsedBuckets: {
@@ -99,13 +117,16 @@ function readDb(): DatabaseShape {
     messages: raw.messages ?? [],
     friendRequests: raw.friendRequests ?? [],
     notifications: raw.notifications ?? [],
-    savedMatches: raw.savedMatches ?? []
+    savedMatches: raw.savedMatches ?? [],
+    reports: raw.reports ?? []
   };
 
   if (
     raw.savedMatches === undefined ||
     raw.notifications === undefined ||
-    raw.collapsedBuckets === undefined
+    raw.collapsedBuckets === undefined ||
+    raw.reports === undefined ||
+    raw.profiles?.some(p => p.notificationsEnabled === undefined)
   ) {
     writeDb(normalized);
   }
@@ -123,17 +144,36 @@ export function initializeDatabase() {
 }
 
 export function getBoardState(sessionToken?: string): BoardState {
-  const data = readDb();
-  return {
-    currentUser: sessionToken ? getUserBySession(sessionToken) : null,
-    tasks: data.tasks,
-    collapsedBuckets: data.collapsedBuckets,
-    messages: data.messages,
-    friendRequests: data.friendRequests,
-    notifications: data.notifications,
-    savedMatches: data.savedMatches
-  };
-}
+    const data = readDb();
+    const currentUser = sessionToken ? getUserBySession(sessionToken) : null;
+    let messages = data.messages;
+    let notifications = data.notifications;
+    
+    if (currentUser) {
+      const userRecord = data.users.find(u => u.email === currentUser.email);
+      if (userRecord) {
+        const profile = data.profiles.find(p => p.userId === userRecord.id);
+        if (profile) {
+          if (profile.blockedUsers.length > 0) {
+            messages = messages.filter(m => !profile.blockedUsers.includes(m.sender));
+          }
+          if (!profile.notificationsEnabled) {
+            notifications = [];
+          }
+        }
+      }
+    }
+  
+    return {
+      currentUser,
+      tasks: data.tasks,
+      collapsedBuckets: data.collapsedBuckets,
+      messages,
+      friendRequests: data.friendRequests,
+      notifications,
+      savedMatches: data.savedMatches
+    };
+  }
 
 export function registerUser(name: string, email: string, password: string) {
   const data = readDb();
@@ -322,7 +362,7 @@ export function saveMatch(input: {
 
 export function updateProfile(
   sessionToken: string,
-  input: { name: string; bio: string; avatarUrl: string; interests: string }
+  input: { name: string; bio: string; avatarUrl: string; interests: string; notificationsEnabled?: boolean }
 ) {
   const data = readDb();
   const session = data.sessions.find((entry) => entry.token === sessionToken);
@@ -340,6 +380,9 @@ export function updateProfile(
   profile.bio = input.bio;
   profile.avatarUrl = input.avatarUrl;
   profile.interests = input.interests;
+  if (input.notificationsEnabled !== undefined) {
+    profile.notificationsEnabled = input.notificationsEnabled;
+  }
   writeDb(data);
 }
 
@@ -357,8 +400,42 @@ export function getProfile(sessionToken: string) {
     email: user.email,
     bio: profile.bio,
     avatarUrl: profile.avatarUrl,
-    interests: profile.interests
+    interests: profile.interests,
+    notificationsEnabled: profile.notificationsEnabled
   };
+}
+
+export function blockUser(sessionToken: string, targetUser: string) {
+  const data = readDb();
+  const session = data.sessions.find((entry) => entry.token === sessionToken);
+  if (!session) throw new Error("Not authenticated.");
+  
+  const profile = data.profiles.find((entry) => entry.userId === session.userId);
+  if (!profile) throw new Error("Profile not found.");
+
+  if (!profile.blockedUsers.includes(targetUser.trim())) {
+    profile.blockedUsers.push(targetUser.trim());
+    writeDb(data);
+  }
+}
+
+export function reportUser(sessionToken: string, targetUser: string, reason: string) {
+  const data = readDb();
+  const session = data.sessions.find((entry) => entry.token === sessionToken);
+  if (!session) throw new Error("Not authenticated.");
+  
+  const user = data.users.find((entry) => entry.id === session.userId);
+  if (!user) throw new Error("User not found.");
+
+  const nextId = data.reports.reduce((max, report) => Math.max(max, report.id), 0) + 1;
+  data.reports.push({
+    id: nextId,
+    reporter: user.name,
+    reportedUser: targetUser.trim(),
+    reason: reason.trim(),
+    timestamp: formatTimestamp()
+  });
+  writeDb(data);
 }
 
 export function markNotificationRead(id: number) {

@@ -5,8 +5,14 @@ import { addMessage, getBoardState } from "@/lib/db";
 export async function POST(request: NextRequest) {
   try {
     const { text } = await request.json();
+    const messageText = String(text ?? "").trim();
+    
+    if (!messageText) {
+      throw new Error("Empty message not sent.");
+    }
+    
     const currentUser = await getCurrentUser();
-    addMessage(currentUser?.name ?? "You", String(text ?? "").trim());
+    addMessage(currentUser?.name ?? "You", messageText);
     const token = await getSessionToken();
     return NextResponse.json(getBoardState(token));
   } catch (error) {

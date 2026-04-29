@@ -12,7 +12,7 @@ type BoardContextValue = {
   toggleTaskCompletion: (taskId: number) => Promise<void>;
   toggleSubtask: (taskId: number, subtaskIndex: number) => Promise<void>;
   toggleBucket: (bucket: string) => Promise<void>;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string) => Promise<{ error?: string }>;
   respondToFriendRequest: (id: number, status: FriendRequest["status"]) => Promise<void>;
   sendConnectionRequest: (payload: { from: string; course: string }) => Promise<{ error?: string }>;
   saveMatch: (payload: {
@@ -26,8 +26,11 @@ type BoardContextValue = {
     bio: string;
     avatarUrl: string;
     interests: string;
+    notificationsEnabled?: boolean;
   }) => Promise<{ error?: string }>;
   markNotificationRead: (id: number) => Promise<void>;
+  blockUser: (targetUser: string) => Promise<{ error?: string }>;
+  reportUser: (targetUser: string, reason: string) => Promise<{ error?: string }>;
   refresh: () => Promise<void>;
 };
 
@@ -107,13 +110,16 @@ export function BoardProvider({ children }: PropsWithChildren) {
         await refresh();
       },
       async sendMessage(text) {
-        if (!text.trim()) return;
-        await fetch("/api/messages", {
+        if (!text.trim()) return { error: "Empty message not sent." };
+        const response = await fetch("/api/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text })
         });
+        const data = await response.json();
+        if (!response.ok) return { error: data.error ?? "Failed to send." };
         await refresh();
+        return {};
       },
       async respondToFriendRequest(id, status) {
         await fetch(`/api/friend-requests/${id}`, {
@@ -165,6 +171,27 @@ export function BoardProvider({ children }: PropsWithChildren) {
       async markNotificationRead(id) {
         await fetch(`/api/notifications/${id}`, { method: "PATCH" });
         await refresh();
+      },
+      async blockUser(targetUser) {
+        const response = await fetch("/api/users/block", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetUser })
+        });
+        const data = await response.json();
+        if (!response.ok) return { error: data.error ?? "Could not block user." };
+        await refresh();
+        return {};
+      },
+      async reportUser(targetUser, reason) {
+        const response = await fetch("/api/users/report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetUser, reason })
+        });
+        const data = await response.json();
+        if (!response.ok) return { error: data.error ?? "Could not report user." };
+        return {};
       },
       refresh
     }),
