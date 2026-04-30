@@ -1,6 +1,16 @@
-import fs from "fs";
-import path from "path";
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import dbConnect from "./mongoose";
+import User from "./models/User";
+import Profile from "./models/Profile";
+import Session from "./models/Session";
+import Task from "./models/Task";
+import Message from "./models/Message";
+import FriendRequest from "./models/FriendRequest";
+import Notification from "./models/Notification";
+import SavedMatch from "./models/SavedMatch";
+import Report from "./models/Report";
+import Config from "./models/Config";
+
 import {
   defaultCollapsedBuckets,
   seedFriendRequests,
@@ -8,391 +18,354 @@ import {
   seedNotifications,
   seedSavedMatches,
   seedTasks,
-  seedUsers
+  seedUsers,
 } from "@/lib/seed";
-import type { BoardState, FriendRequest, Notification, SavedMatch, Task, TaskStatus, UserSession } from "@/lib/types";
+import type { BoardState, Task as AppTask, TaskStatus, UserSession } from "@/lib/types";
 
-type StoredProfile = {
-  userId: number;
-  bio: string;
-  avatarUrl: string;
-  interests: string;
-  notificationsEnabled: boolean;
-  blockedUsers: string[];
-};
-
-type StoredUser = {
-  id: number;
-  name: string;
-  email: string;
-  passwordHash: string;
-};
-
-type StoredSession = {
-  token: string;
-  userId: number;
-  createdAt: string;
-};
-
-type AdminReport = {
-  id: number;
-  reporter: string;
-  reportedUser: string;
-  reason: string;
-  timestamp: string;
-};
-
-type DatabaseShape = {
-  users: StoredUser[];
-  profiles: StoredProfile[];
-  sessions: StoredSession[];
-  tasks: Task[];
-  collapsedBuckets: Record<string, boolean>;
-  messages: BoardState["messages"];
-  friendRequests: BoardState["friendRequests"];
-  notifications: Notification[];
-  savedMatches: SavedMatch[];
-  reports: AdminReport[];
-};
-
-const dataDir = path.join(process.cwd(), ".data");
-const dataFile = path.join(dataDir, "app-state.json");
-
-function ensureDataFile() {
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-
-  if (!fs.existsSync(dataFile)) {
-    const initialUsers: StoredUser[] = seedUsers.map((user, index) => ({
-      id: index + 1,
-      name: user.name,
-      email: user.email,
-      passwordHash: hashPassword(user.password)
-    }));
-
-    const initialProfiles: StoredProfile[] = initialUsers.map((user) => ({
-      userId: user.id,
-      bio: "",
-      avatarUrl: "",
-      interests: "",
-      notificationsEnabled: true,
-      blockedUsers: []
-    }));
-
-    const initialData: DatabaseShape = {
-      users: initialUsers,
-      profiles: initialProfiles,
-      sessions: [],
-      tasks: seedTasks,
-      collapsedBuckets: { ...defaultCollapsedBuckets },
-      messages: seedMessages,
-      friendRequests: seedFriendRequests,
-      notifications: seedNotifications,
-      savedMatches: seedSavedMatches,
-      reports: []
-    };
-
-    fs.writeFileSync(dataFile, JSON.stringify(initialData, null, 2), "utf8");
-  }
+async function getNextId(model: any): Promise<number> {
+  const lastDoc = await model.findOne().sort({ id: -1 });
+  return lastDoc && lastDoc.id ? lastDoc.id + 1 : 1;
 }
 
-function readDb(): DatabaseShape {
-  ensureDataFile();
-  const raw = JSON.parse(fs.readFileSync(dataFile, "utf8")) as Partial<DatabaseShape>;
-
-  const normalized: DatabaseShape = {
-    users: raw.users ?? [],
-    profiles: (raw.profiles ?? []).map(p => ({
-      ...p,
-      notificationsEnabled: p.notificationsEnabled ?? true,
-      blockedUsers: p.blockedUsers ?? []
-    })),
-    sessions: raw.sessions ?? [],
-    tasks: raw.tasks ?? [],
-    collapsedBuckets: {
-      ...defaultCollapsedBuckets,
-      ...(raw.collapsedBuckets ?? {})
-    },
-    messages: raw.messages ?? [],
-    friendRequests: raw.friendRequests ?? [],
-    notifications: raw.notifications ?? [],
-    savedMatches: raw.savedMatches ?? [],
-    reports: raw.reports ?? []
-  };
-
-  if (
-    raw.savedMatches === undefined ||
-    raw.notifications === undefined ||
-    raw.collapsedBuckets === undefined ||
-    raw.reports === undefined ||
-    raw.profiles?.some(p => p.notificationsEnabled === undefined)
-  ) {
-    writeDb(normalized);
-  }
-
-  return normalized;
-}
-
-function writeDb(data: DatabaseShape) {
-  ensureDataFile();
-  fs.writeFileSync(dataFile, JSON.stringify(data, null, 2), "utf8");
-}
-
-export function initializeDatabase() {
-  ensureDataFile();
-}
-
-export function getBoardState(sessionToken?: string): BoardState {
-    const data = readDb();
-    const currentUser = sessionToken ? getUserBySession(sessionToken) : null;
-    let messages = data.messages;
-    let notifications = data.notifications;
+export async function initializeDatabase() {
+  await dbConnect();
+  
+  const userCount = await User.countDocuments();
+  if (userCount === 0) {
+    console.log("Seeding database...");
     
-    if (currentUser) {
-      const userRecord = data.users.find(u => u.email === currentUser.email);
-      if (userRecord) {
-        const profile = data.profiles.find(p => p.userId === userRecord.id);
-        if (profile) {
-          if (profile.blockedUsers.length > 0) {
-            messages = messages.filter(m => !profile.blockedUsers.includes(m.sender));
-          }
-          if (!profile.notificationsEnabled) {
-            notifications = [];
-          }
+    // Users and Profiles
+    let nextUserId = 1;
+    for (const u of seedUsers) {
+      await User.create({
+        id: nextUserId,
+        name: u.name,
+        email: u.email,
+        passwordHash: hashPassword(u.password),
+      });
+      await Profile.create({
+        userId: nextUserId,
+        bio: "",
+        avatarUrl: "",
+        interests: "",
+        notificationsEnabled: true,
+        blockedUsers: [],
+      });
+      nextUserId++;
+    }
+
+    // Tasks
+    for (const t of seedTasks) {
+      await Task.create(t);
+    }
+
+    // Config (Collapsed Buckets)
+    await Config.create({
+      key: "collapsedBuckets",
+      value: defaultCollapsedBuckets,
+    });
+
+    // Messages
+    for (const m of seedMessages) {
+      await Message.create(m);
+    }
+
+    // Friend Requests
+    for (const fr of seedFriendRequests) {
+      await FriendRequest.create(fr);
+    }
+
+    // Notifications
+    for (const n of seedNotifications) {
+      await Notification.create(n);
+    }
+
+    // Saved Matches
+    for (const sm of seedSavedMatches) {
+      await SavedMatch.create(sm);
+    }
+    
+    console.log("Database seeded.");
+  }
+}
+
+export async function getBoardState(sessionToken?: string): Promise<BoardState> {
+  await dbConnect();
+  
+  const currentUser = sessionToken ? await getUserBySession(sessionToken) : null;
+  
+  let messagesQuery = Message.find().sort({ id: 1 });
+  let notificationsQuery = Notification.find().sort({ id: -1 });
+  
+  if (currentUser) {
+    const userRecord = await User.findOne({ email: currentUser.email });
+    if (userRecord) {
+      const profile = await Profile.findOne({ userId: userRecord.id });
+      if (profile) {
+        if (profile.blockedUsers && profile.blockedUsers.length > 0) {
+          messagesQuery = messagesQuery.find({ sender: { $nin: profile.blockedUsers } });
+        }
+        if (!profile.notificationsEnabled) {
+          notificationsQuery = Notification.find({ id: -1 }); // Trick to return empty
         }
       }
     }
-  
-    return {
-      currentUser,
-      tasks: data.tasks,
-      collapsedBuckets: data.collapsedBuckets,
-      messages,
-      friendRequests: data.friendRequests,
-      notifications,
-      savedMatches: data.savedMatches
-    };
   }
 
-export function registerUser(name: string, email: string, password: string) {
-  const data = readDb();
+  const tasks = await Task.find().sort({ id: 1 }).lean();
+  const configDoc = await Config.findOne({ key: "collapsedBuckets" }).lean();
+  const collapsedBuckets = configDoc ? configDoc.value : defaultCollapsedBuckets;
+  const messages = await messagesQuery.lean();
+  const friendRequests = await FriendRequest.find().sort({ id: -1 }).lean();
+  const notifications = await notificationsQuery.lean();
+  const savedMatches = await SavedMatch.find().sort({ id: -1 }).lean();
+
+  return {
+    currentUser,
+    tasks: tasks as AppTask[],
+    collapsedBuckets,
+    messages: messages as any,
+    friendRequests: friendRequests as any,
+    notifications: notifications as any,
+    savedMatches: savedMatches as any,
+  };
+}
+
+export async function registerUser(name: string, email: string, password: string) {
+  await dbConnect();
   const normalizedEmail = email.trim().toLowerCase();
 
   if (!normalizedEmail.endsWith("@srmist.edu.in")) {
     throw new Error("Only SRMIST email addresses are allowed.");
   }
 
-  if (data.users.some((user) => user.email === normalizedEmail)) {
+  const existing = await User.findOne({ email: normalizedEmail });
+  if (existing) {
     throw new Error("An account with this email already exists.");
   }
 
-  const nextId = data.users.reduce((max, user) => Math.max(max, user.id), 0) + 1;
-  data.users.push({
+  const nextId = await getNextId(User);
+  await User.create({
     id: nextId,
     name: name.trim(),
     email: normalizedEmail,
-    passwordHash: hashPassword(password)
+    passwordHash: hashPassword(password),
   });
-  data.profiles.push({
+
+  await Profile.create({
     userId: nextId,
     bio: "",
     avatarUrl: "",
-    interests: ""
+    interests: "",
   });
-  writeDb(data);
 }
 
-export function createSession(email: string, password: string) {
-  const data = readDb();
-  const user = data.users.find((entry) => entry.email === email.trim().toLowerCase());
+export async function createSession(email: string, password: string) {
+  await dbConnect();
+  const user = await User.findOne({ email: email.trim().toLowerCase() });
 
   if (!user || !verifyPassword(password, user.passwordHash)) {
     throw new Error("Invalid email or password.");
   }
 
   const token = randomBytes(24).toString("hex");
-  data.sessions.push({
+  await Session.create({
     token,
     userId: user.id,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
   });
-  writeDb(data);
 
   return {
     token,
     user: {
       name: user.name,
-      email: user.email
-    }
+      email: user.email,
+    },
   };
 }
 
-export function deleteSession(token: string) {
-  const data = readDb();
-  data.sessions = data.sessions.filter((session) => session.token !== token);
-  writeDb(data);
+export async function deleteSession(token: string) {
+  await dbConnect();
+  await Session.deleteOne({ token });
 }
 
-export function getUserBySession(token: string): UserSession | null {
-  const data = readDb();
-  const session = data.sessions.find((entry) => entry.token === token);
+export async function getUserBySession(token: string): Promise<UserSession | null> {
+  await dbConnect();
+  const session = await Session.findOne({ token });
   if (!session) return null;
-  const user = data.users.find((entry) => entry.id === session.userId);
+  const user = await User.findOne({ id: session.userId });
   if (!user) return null;
   return { name: user.name, email: user.email };
 }
 
-export function createTask(input: Omit<Task, "id" | "status" | "completedOn">) {
-  const data = readDb();
-  const nextId = data.tasks.reduce((max, task) => Math.max(max, task.id), 0) + 1;
-  data.tasks.unshift({
+export async function createTask(input: Omit<AppTask, "id" | "status" | "completedOn">) {
+  await dbConnect();
+  const nextId = await getNextId(Task);
+  await Task.create({
     ...input,
     id: nextId,
     status: "todo",
-    completedOn: "Not finished"
+    completedOn: "Not finished",
   });
-  writeDb(data);
 }
 
-export function toggleTaskCompletion(taskId: number) {
-  const data = readDb();
-  data.tasks = data.tasks.map((task) => {
-    if (task.id !== taskId) return task;
-    const completed = task.status !== "completed";
-    return {
-      ...task,
-      status: completed ? "completed" : "todo",
-      completedOn: completed ? "21/04" : "Not finished",
-      subtasks: task.subtasks.map((subtask) => ({ ...subtask, done: completed }))
-    };
-  });
-  writeDb(data);
+export async function toggleTaskCompletion(taskId: number) {
+  await dbConnect();
+  const task = await Task.findOne({ id: taskId });
+  if (!task) return;
+  
+  const completed = task.status !== "completed";
+  task.status = completed ? "completed" : "todo";
+  task.completedOn = completed ? "21/04" : "Not finished";
+  
+  if (task.subtasks) {
+    task.subtasks = task.subtasks.map((st: any) => ({ ...st, done: completed }));
+  }
+  
+  await task.save();
 }
 
-export function toggleSubtask(taskId: number, subtaskIndex: number) {
-  const data = readDb();
-  data.tasks = data.tasks.map((task) => {
-    if (task.id !== taskId) return task;
-    const subtasks = task.subtasks.map((subtask, index) =>
-      index === subtaskIndex ? { ...subtask, done: !subtask.done } : subtask
-    );
-    return syncTaskStatus({ ...task, subtasks });
-  });
-  writeDb(data);
+export async function toggleSubtask(taskId: number, subtaskIndex: number) {
+  await dbConnect();
+  const task = await Task.findOne({ id: taskId });
+  if (!task || !task.subtasks) return;
+  
+  if (task.subtasks[subtaskIndex]) {
+    task.subtasks[subtaskIndex].done = !task.subtasks[subtaskIndex].done;
+  }
+  
+  // Sync status
+  const doneCount = task.subtasks.filter((item: any) => item.done).length;
+  const total = task.subtasks.length;
+  
+  if (total > 0 && doneCount === total) {
+    task.status = "completed";
+    task.completedOn = "21/04";
+  } else if (doneCount > 0) {
+    task.status = "in-progress";
+    task.completedOn = "In progress";
+  } else {
+    task.status = "todo";
+    task.completedOn = "Not finished";
+  }
+  
+  await task.save();
 }
 
-export function toggleBucketCollapsed(bucket: string) {
-  const data = readDb();
-  data.collapsedBuckets[bucket] = !data.collapsedBuckets[bucket];
-  writeDb(data);
+export async function toggleBucketCollapsed(bucket: string) {
+  await dbConnect();
+  let config = await Config.findOne({ key: "collapsedBuckets" });
+  if (!config) {
+    config = new Config({ key: "collapsedBuckets", value: defaultCollapsedBuckets });
+  }
+  
+  const currentValue = config.value[bucket];
+  config.value = { ...config.value, [bucket]: !currentValue };
+  config.markModified('value');
+  await config.save();
 }
 
-export function addMessage(sender: string, text: string) {
-  const data = readDb();
-  const nextId = data.messages.reduce((max, message) => Math.max(max, message.id), 0) + 1;
-  data.messages.push({
+export async function addMessage(sender: string, text: string) {
+  await dbConnect();
+  const nextId = await getNextId(Message);
+  await Message.create({
     id: nextId,
     sender,
     text,
-    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   });
-  addNotificationRecord(data, "New message", `${sender} sent a new message.`);
-  writeDb(data);
+  await addNotificationRecord("New message", `${sender} sent a new message.`);
 }
 
-export function respondToFriendRequest(id: number, status: "accepted" | "rejected") {
-  const data = readDb();
-  const request = data.friendRequests.find((entry) => entry.id === id);
+export async function respondToFriendRequest(id: number, status: "accepted" | "rejected") {
+  await dbConnect();
+  const request = await FriendRequest.findOne({ id });
   if (!request) return;
   request.status = status;
-  addNotificationRecord(data, "Friend request updated", `${request.from} was ${status}.`);
-  writeDb(data);
+  await request.save();
+  await addNotificationRecord("Friend request updated", `${request.from} was ${status}.`);
 }
 
-export function createFriendRequest(input: { from: string; course: string }) {
-  const data = readDb();
-  const existing = data.friendRequests.find(
-    (request) => request.from.toLowerCase() === input.from.trim().toLowerCase() && request.status === "pending"
-  );
+export async function createFriendRequest(input: { from: string; course: string }) {
+  await dbConnect();
+  const existing = await FriendRequest.findOne({
+    from: { $regex: new RegExp(`^${input.from.trim()}$`, "i") },
+    status: "pending"
+  });
   if (existing) {
     throw new Error("Request already sent.");
   }
 
-  const nextId = data.friendRequests.reduce((max, request) => Math.max(max, request.id), 0) + 1;
-  const nextRequest: FriendRequest = {
+  const nextId = await getNextId(FriendRequest);
+  const nextRequest = await FriendRequest.create({
     id: nextId,
     from: input.from.trim(),
     course: input.course.trim(),
-    status: "pending"
-  };
-  data.friendRequests.unshift(nextRequest);
-  addNotificationRecord(data, "New connection request", `${nextRequest.from} is now in your requests list.`);
-  writeDb(data);
-  return nextRequest;
+    status: "pending",
+  });
+  await addNotificationRecord("New connection request", `${nextRequest.from} is now in your requests list.`);
+  return nextRequest.toObject();
 }
 
-export function saveMatch(input: {
+export async function saveMatch(input: {
   name: string;
   course: string;
   summary: string;
   interests: string[];
 }) {
-  const data = readDb();
+  await dbConnect();
   const normalizedName = input.name.trim().toLowerCase();
-  const existing = data.savedMatches.find((match) => match.name.trim().toLowerCase() === normalizedName);
+  const existing = await SavedMatch.findOne({
+    name: { $regex: new RegExp(`^${normalizedName}$`, "i") }
+  });
   if (existing) {
     throw new Error("Match already saved.");
   }
 
-  const nextId = data.savedMatches.reduce((max, match) => Math.max(max, match.id), 0) + 1;
-  const nextMatch: SavedMatch = {
+  const nextId = await getNextId(SavedMatch);
+  const nextMatch = await SavedMatch.create({
     id: nextId,
     name: input.name.trim(),
     course: input.course.trim(),
     summary: input.summary.trim(),
     interests: input.interests,
-    savedAt: formatTimestamp()
-  };
-  data.savedMatches.unshift(nextMatch);
-  addNotificationRecord(data, "Match saved", `${nextMatch.name} was saved for later.`);
-  writeDb(data);
-  return nextMatch;
+    savedAt: formatTimestamp(),
+  });
+  await addNotificationRecord("Match saved", `${nextMatch.name} was saved for later.`);
+  return nextMatch.toObject();
 }
 
-export function updateProfile(
+export async function updateProfile(
   sessionToken: string,
   input: { name: string; bio: string; avatarUrl: string; interests: string; notificationsEnabled?: boolean }
 ) {
-  const data = readDb();
-  const session = data.sessions.find((entry) => entry.token === sessionToken);
-  if (!session) {
-    throw new Error("Not authenticated.");
-  }
+  await dbConnect();
+  const session = await Session.findOne({ token: sessionToken });
+  if (!session) throw new Error("Not authenticated.");
 
-  const user = data.users.find((entry) => entry.id === session.userId);
-  const profile = data.profiles.find((entry) => entry.userId === session.userId);
-  if (!user || !profile) {
-    throw new Error("Profile not found.");
-  }
+  const user = await User.findOne({ id: session.userId });
+  const profile = await Profile.findOne({ userId: session.userId });
+  if (!user || !profile) throw new Error("Profile not found.");
 
   user.name = input.name.trim();
+  await user.save();
+
   profile.bio = input.bio;
   profile.avatarUrl = input.avatarUrl;
   profile.interests = input.interests;
   if (input.notificationsEnabled !== undefined) {
     profile.notificationsEnabled = input.notificationsEnabled;
   }
-  writeDb(data);
+  await profile.save();
 }
 
-export function getProfile(sessionToken: string) {
-  const data = readDb();
-  const session = data.sessions.find((entry) => entry.token === sessionToken);
+export async function getProfile(sessionToken: string) {
+  await dbConnect();
+  const session = await Session.findOne({ token: sessionToken });
   if (!session) return null;
 
-  const user = data.users.find((entry) => entry.id === session.userId);
-  const profile = data.profiles.find((entry) => entry.userId === session.userId);
+  const user = await User.findOne({ id: session.userId });
+  const profile = await Profile.findOne({ userId: session.userId });
   if (!user || !profile) return null;
 
   return {
@@ -401,81 +374,56 @@ export function getProfile(sessionToken: string) {
     bio: profile.bio,
     avatarUrl: profile.avatarUrl,
     interests: profile.interests,
-    notificationsEnabled: profile.notificationsEnabled
+    notificationsEnabled: profile.notificationsEnabled,
   };
 }
 
-export function blockUser(sessionToken: string, targetUser: string) {
-  const data = readDb();
-  const session = data.sessions.find((entry) => entry.token === sessionToken);
+export async function blockUser(sessionToken: string, targetUser: string) {
+  await dbConnect();
+  const session = await Session.findOne({ token: sessionToken });
   if (!session) throw new Error("Not authenticated.");
   
-  const profile = data.profiles.find((entry) => entry.userId === session.userId);
+  const profile = await Profile.findOne({ userId: session.userId });
   if (!profile) throw new Error("Profile not found.");
 
   if (!profile.blockedUsers.includes(targetUser.trim())) {
     profile.blockedUsers.push(targetUser.trim());
-    writeDb(data);
+    await profile.save();
   }
 }
 
-export function reportUser(sessionToken: string, targetUser: string, reason: string) {
-  const data = readDb();
-  const session = data.sessions.find((entry) => entry.token === sessionToken);
+export async function reportUser(sessionToken: string, targetUser: string, reason: string) {
+  await dbConnect();
+  const session = await Session.findOne({ token: sessionToken });
   if (!session) throw new Error("Not authenticated.");
   
-  const user = data.users.find((entry) => entry.id === session.userId);
+  const user = await User.findOne({ id: session.userId });
   if (!user) throw new Error("User not found.");
 
-  const nextId = data.reports.reduce((max, report) => Math.max(max, report.id), 0) + 1;
-  data.reports.push({
+  const nextId = await getNextId(Report);
+  await Report.create({
     id: nextId,
     reporter: user.name,
     reportedUser: targetUser.trim(),
     reason: reason.trim(),
-    timestamp: formatTimestamp()
+    timestamp: formatTimestamp(),
   });
-  writeDb(data);
 }
 
-export function markNotificationRead(id: number) {
-  const data = readDb();
-  data.notifications = data.notifications.map((notification) =>
-    notification.id === id ? { ...notification, read: true } : notification
-  );
-  writeDb(data);
+export async function markNotificationRead(id: number) {
+  await dbConnect();
+  await Notification.updateOne({ id }, { read: true });
 }
 
-function addNotificationRecord(data: DatabaseShape, title: string, body: string) {
-  const nextId = data.notifications.reduce((max, notification) => Math.max(max, notification.id), 0) + 1;
-  data.notifications.unshift({
+async function addNotificationRecord(title: string, body: string) {
+  const nextId = await getNextId(Notification);
+  await Notification.create({
     id: nextId,
     title,
     body,
     read: false,
-    createdAt: formatTimestamp()
+    createdAt: formatTimestamp(),
   });
-}
-
-function syncTaskStatus(task: Task): Task {
-  const doneCount = task.subtasks.filter((item) => item.done).length;
-  const total = task.subtasks.length;
-  let status: TaskStatus = "todo";
-  let completedOn = "Not finished";
-
-  if (total > 0 && doneCount === total) {
-    status = "completed";
-    completedOn = "21/04";
-  } else if (doneCount > 0) {
-    status = "in-progress";
-    completedOn = "In progress";
-  }
-
-  return {
-    ...task,
-    status,
-    completedOn
-  };
 }
 
 function hashPassword(password: string) {

@@ -6,7 +6,7 @@ import { SESSION_COOKIE } from "@/lib/session";
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json();
-    const { token, user } = createSession(String(email ?? ""), String(password ?? ""));
+    const { token, user } = await createSession(String(email ?? ""), String(password ?? ""));
     (await cookies()).set(SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: "lax",

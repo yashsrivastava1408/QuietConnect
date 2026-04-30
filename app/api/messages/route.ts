@@ -12,9 +12,9 @@ export async function POST(request: NextRequest) {
     }
     
     const currentUser = await getCurrentUser();
-    addMessage(currentUser?.name ?? "You", messageText);
+    await addMessage(currentUser?.name ?? "You", messageText);
     const token = await getSessionToken();
-    return NextResponse.json(getBoardState(token));
+    return NextResponse.json(await getBoardState(token));
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not send message." },

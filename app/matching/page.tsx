@@ -71,7 +71,7 @@ export default function MatchingPage() {
                   setFeedback(result.error ?? `Connection request sent to ${person.name}.`);
                 }}
               >
-                Connect Quietly
+                Connect on Campus
               </button>
               <button
                 className="ghost-button"

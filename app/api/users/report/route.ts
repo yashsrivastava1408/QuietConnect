@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     if (!targetUser || !reason) {
       throw new Error("Target user and reason are required.");
     }
-    reportUser(token, targetUser, reason);
+    await reportUser(token, targetUser, reason);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(

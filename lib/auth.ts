@@ -16,13 +16,13 @@ export async function requireSessionToken() {
 
 export async function getCurrentUser() {
   const token = await getSessionToken();
-  return token ? getUserBySession(token) : null;
+  return token ? await getUserBySession(token) : null;
 }
 
 export async function clearCurrentSession() {
   const token = await getSessionToken();
   if (token) {
-    deleteSession(token);
+    await deleteSession(token);
   }
   (await cookies()).delete(SESSION_COOKIE);
 }

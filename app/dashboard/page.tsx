@@ -37,7 +37,7 @@ export default function DashboardPage() {
         <p className="eyebrow">Dashboard</p>
         <h2>Your calm social dashboard</h2>
         <p className="hero-copy">
-          This is the product home now, not a task board. It highlights your session, pending requests, unread alerts, and suggested low-pressure connections.
+          This is your campus connect hub. It highlights your session, pending requests, unread alerts, and suggested low-pressure connections.
         </p>
       </section>
 

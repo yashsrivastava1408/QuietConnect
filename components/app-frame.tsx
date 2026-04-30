@@ -23,10 +23,10 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar">
         <div>
-          <p className="eyebrow">Quiet Social</p>
-          <h1>Introvert Connect</h1>
+          <p className="eyebrow">Campus Social</p>
+          <h1>Campus Connect</h1>
           <p className="sidebar-copy">
-            A low-pressure social app where introverts can match, message, and connect through calmer workflows.
+            A low-pressure social app where students can match, message, and connect through calmer workflows.
           </p>
         </div>
 

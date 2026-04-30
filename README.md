@@ -1,4 +1,4 @@
-# Introvert Connect (TaskBoard OS)
+# Campus Connect
 
 A multi-page Next.js web application tailored for a low-pressure social and productivity experience. It perfectly balances a focused task management system (Kanban style) with an introvert-friendly campus networking platform. Features include profile matching based on shared interests, quiet messaging, friend requests, and a beautifully designed, premium dark-themed interface built from scratch using pure CSS glassmorphism.
 

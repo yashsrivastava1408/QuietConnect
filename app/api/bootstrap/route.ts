@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSessionToken } from "@/lib/auth";
-import { getBoardState } from "@/lib/db";
+import { getBoardState, initializeDatabase } from "@/lib/db";
 
 export async function GET() {
+  await initializeDatabase();
   const token = await getSessionToken();
-  return NextResponse.json(getBoardState(token));
+  return NextResponse.json(await getBoardState(token));
 }

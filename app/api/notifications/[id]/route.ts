@@ -6,7 +6,7 @@ export async function PATCH(
   _: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  markNotificationRead(Number((await params).id));
+  await markNotificationRead(Number((await params).id));
   const token = await getSessionToken();
-  return NextResponse.json(getBoardState(token));
+  return NextResponse.json(await getBoardState(token));
 }

@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; index: string }> }
 ) {
   const resolved = await params;
-  toggleSubtask(Number(resolved.id), Number(resolved.index));
+  await toggleSubtask(Number(resolved.id), Number(resolved.index));
   const token = await getSessionToken();
-  return NextResponse.json(getBoardState(token));
+  return NextResponse.json(await getBoardState(token));
 }

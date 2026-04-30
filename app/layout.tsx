@@ -7,8 +7,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "TaskBoard OS",
-  description: "Multi-page Next.js workflow board with local browser persistence"
+  title: "Campus Connect",
+  description: "A low-pressure campus networking platform for students"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

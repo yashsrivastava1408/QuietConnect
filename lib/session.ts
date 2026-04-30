@@ -1,1 +1,1 @@
-export const SESSION_COOKIE = "taskboard_session";
+export const SESSION_COOKIE = "campusconnect_session";

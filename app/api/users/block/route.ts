@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     if (!targetUser) {
       throw new Error("Target user is required.");
     }
-    blockUser(token, targetUser);
+    await blockUser(token, targetUser);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(

@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { status } = await request.json();
-  respondToFriendRequest(Number((await params).id), status);
+  await respondToFriendRequest(Number((await params).id), status);
   const token = await getSessionToken();
-  return NextResponse.json(getBoardState(token));
+  return NextResponse.json(await getBoardState(token));
 }
